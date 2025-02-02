@@ -15,6 +15,7 @@ logger = setup_logger("cleaning")
 # Helper Functions for Cleaning Operations
 # ==========================================
 
+
 def normalize_amharic_text(text: str, diacritics_map: Dict[str, str]) -> str:
     """
     Replaces Amharic diacritics with their base forms based on the given map.
