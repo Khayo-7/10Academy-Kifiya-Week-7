@@ -1,0 +1,11 @@
+telegram_project:
+  outputs:
+    dev:
+      type: postgres
+      host: localhost
+      user: your_user
+      password: your_password
+      dbname: telegram_db
+      schema: public
+      threads: 4
+  target: dev
