@@ -1,0 +1,31 @@
+pandas
+numpy
+matplotlib
+seaborn
+streamlit
+shap
+lime
+scikit-learn
+tensorflow
+statsmodels
+telethon
+psycopg2
+pytesseract
+pillow
+shap
+lime
+amseg
+pdf2image
+datasets
+transformers
+sentencepiece
+seqeval
+torch
+optuna
+accelerate
+peft
+evaluate
+wandb
+# dotenv
+# pyamharic
+# ethiopic
