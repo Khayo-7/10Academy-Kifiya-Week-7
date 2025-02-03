@@ -54,10 +54,9 @@ class TelegramAPI:
     def _create_client(self) -> TelegramClient:
         """Create and return a Telegram client."""
         if os.path.exists(self.session_file):
+            # with open(self.session_file, 'rb') as f:
             with open(self.session_file, 'r') as f:
                 session_str = f.read().strip()
-                
-            print("herererererere", self.session_file, session_str)
             return TelegramClient(StringSession(session_str), self.api_id, self.api_hash)
         return TelegramClient(StringSession(), self.api_id, self.api_hash)
     
