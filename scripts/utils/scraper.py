@@ -13,7 +13,7 @@ sys.path.append(os.path.join(os.path.abspath(__file__), '..', '..', '..'))
 from scripts.utils.logger import setup_logger
 from scripts.data_utils.loaders import load_json
 from scripts.utils.telegram_client import TelegramAPI
-from scripts.utils.StorageInterface import StorageInterface
+from scripts.utils.storage_interface import StorageInterface
 
 logger = setup_logger("scraper")
 
@@ -55,21 +55,24 @@ class TelegramScraper:
             "Media Path": []
         })
         medias = []
+
         async for message in self.api.client.iter_messages(channel, limit=limit):
             
-            if message.id <= last_id:
-                continue
+            # if message.id >= last_id:
+            #     continue
             
             group_id = message.grouped_id if message.grouped_id else message.id
             msg_entry = messages_data[group_id]
             msg_entry.update({
                 "Group ID": group_id,
+                # "Message IDs": msg_entry["Message IDs"].append([message.id]),
                 "Message IDs": msg_entry["Message IDs"] + [message.id],
                 "Text": msg_entry["Text"] or message.text,
                 "Message": msg_entry["Message"] or message.message,
                 "Date": msg_entry["Date"] or (message.date.isoformat() if message.date else None),
                 "Sender ID": msg_entry["Sender ID"] or message.sender_id,
             })
+
             if message.media:
                 medias.append(message)
                 msg_entry["Media Path"].append(None)
@@ -96,11 +99,11 @@ class TelegramScraper:
             for msg in messages:
                 msg["Media Path"] = [
                     media_map.get(mid) 
-                    for mid in msg["Message IDs"] 
+                    for mid in msg["Message IDs"]
                     if mid in media_map
                 ]
             
-            await self.storage.save_data(messages)
+            await self.storage.save_data(messages, channel)
             logger.info(f"Processed {len(messages)} messages from {channel}")
         except FloodWaitError as e:
             logger.warning(f"Flood wait {e.seconds} sec for {channel}")
@@ -160,15 +163,10 @@ def sync(func):
     return wrapper
 
 @sync
-def run_fetch_process(channels, media_dir=MEDIA_DIR, limit=100):
+def run_fetch_process(channels, storage_type, allowed_media, media_dir=MEDIA_DIR, limit=100):
     async def main():
         
-        # Initialize Telegram API and storage with required parameters
-        storage_type = 'json' # Use storage backend (MongoDB, Postgres, Local JSON/CSV)
-        allowed_media = ["photo"]
-
-        storage = StorageInterface.create_storage(storage_type)
-
+        storage = await StorageInterface.create_storage(storage_type)
         api = TelegramAPI(
             api_id=os.getenv("API_ID"),
             api_hash=os.getenv("API_HASH"),
@@ -182,6 +180,8 @@ def run_fetch_process(channels, media_dir=MEDIA_DIR, limit=100):
             await api.authenticate()
             scraper = TelegramScraper(api, storage, media_dir)
             await scraper.scrape_channels(channels, limit)
+        except Exception as e:
+            logger.error(f"Error occured while scrapping. {e}")
         finally:
             # await scraper.close()
             await api.cleanup()
@@ -202,8 +202,12 @@ if __name__ == "__main__":
     
     # Load a list of channels from a JSON file to scrape from
     channels = load_json(channels_filepath)
-    CHANNELS = channels.get('CHANNELS', [])
+    CHANNELS = channels.get('channels', [])
+
+    # Initialize Telegram API and storage with required parameters
+    LIMIT = 10
+    storage_type = 'json' # Use storage backend (MongoDB, Postgres, Local JSON/CSV)
+    allowed_media = ["photo"]
 
     # Run only for selected channels
-    LIMIT = 10
-    run_fetch_process(channels=CHANNELS[10:15], limit=LIMIT)
+    run_fetch_process(CHANNELS, storage_type, allowed_media, limit=LIMIT)

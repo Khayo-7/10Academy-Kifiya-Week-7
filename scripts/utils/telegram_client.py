@@ -132,7 +132,7 @@ class TelegramAPI:
 
     async def cleanup(self) -> None:
         """Clean up sensitive data from memory."""
-        # zeroize 
+        # zeroize
         del self.api_id
         del self.api_hash
         del self.phone_number

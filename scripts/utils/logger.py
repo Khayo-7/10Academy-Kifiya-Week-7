@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 
 # Configure logging to write to file & display in Jupyter Notebook
@@ -6,12 +7,12 @@ import logging
 #     level=logging.INFO,
 #     format="%(asctime)s - %(levelname)s - %(message)s",
 #     handlers=[
-#         logging.FileHandler("../logs/data_cleaning.log"),  # Log to file
+#         logging.FileHandler("../logs/data_cleaning.log", encoding="utf-8"),  # Log to file
 #         logging.StreamHandler()  # Log to Jupyter Notebook output
 #     ]
 # )
 
-def setup_logger(log_file_name, log_dir=None):  
+def setup_logger(log_file_name, log_dir=None):
     """
     Sets up a logger that writes different log levels to separate files.
     - INFO and higher go to an 'info.log' file.
@@ -38,42 +39,40 @@ def setup_logger(log_file_name, log_dir=None):
         logger.handlers.clear()
 
     # Create handlers for different log levels
-    info_handler = logging.FileHandler(os.path.join(log_dir, f"{log_file_name}_info.log"))
+    info_handler = logging.FileHandler(os.path.join(log_dir, f"{log_file_name}_info.log"), encoding="utf-8")
     info_handler.setLevel(logging.INFO)
 
-    warning_handler = logging.FileHandler(os.path.join(log_dir, f"{log_file_name}_warning.log"))
+    warning_handler = logging.FileHandler(os.path.join(log_dir, f"{log_file_name}_warning.log"), encoding="utf-8")
     warning_handler.setLevel(logging.WARNING)
 
-    error_handler = logging.FileHandler(os.path.join(log_dir, f"{log_file_name}_error.log"))
+    error_handler = logging.FileHandler(os.path.join(log_dir, f"{log_file_name}_error.log"), encoding="utf-8")
     error_handler.setLevel(logging.ERROR)
 
     # Console  handler
-    console_handler = logging.StreamHandler()
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG)
 
+    # # Ensure UTF-8 encoding
+    # sys.stdout.reconfigure(encoding="utf-8")
+    # sys.stderr.reconfigure(encoding="utf-8")
 
     # Define formatter with emojis
     class EmojiFormatter(logging.Formatter):
         def format(self, record):
             if record.levelno == logging.DEBUG:
-                record.levelname = "[DEBUG]"
-                # record.levelname = "[🐛 DEBUG]"
+                record.levelname = "[🐛 DEBUG]"
             elif record.levelno == logging.INFO:
-                record.levelname = "[INFO]"
-                # record.levelname = "[✅ INFO]"
+                record.levelname = "[✅ INFO]"
             elif record.levelno == logging.WARNING:
-                record.levelname = "[WARNING]"
-                # record.levelname = "[⚠️ WARNING]"
+                record.levelname = "[⚠️ WARNING]"
             elif record.levelno == logging.ERROR:
-                record.levelname = "[ERROR]"
-                # record.levelname = "[❌ ERROR]"
+                record.levelname = "[❌ ERROR]"
             elif record.levelno == logging.CRITICAL:
-                record.levelname = "[CRITICAL]"
-                # record.levelname = "[🚨 CRITICAL]"
+                record.levelname = "[🚨 CRITICAL]"
             return super().format(record)
         
     # Define formatter and Apply formatter with emojis to handlers
-    formatter = EmojiFormatter(fmt=log_format, datefmt=date_format)
+    formatter = EmojiFormatter(fmt=log_format, datefmt=date_format)#, encoding='utf-8')
     # formatter = logging.Formatter(fmt=log_format, datefmt=date_format)
 
     # Apply formatter to handlers

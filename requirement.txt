@@ -24,3 +24,6 @@ opencv-python
 torch
 torchvision
 tensorflow
+asyncpg
+motor
+aiofiles

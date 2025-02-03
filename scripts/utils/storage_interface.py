@@ -1,17 +1,22 @@
 import os
 import sys
 import csv
+import pytz
 import json
 import gridfs
+import asyncio
 import asyncpg
 import psycopg2
 import aiofiles
+import pandas as pd
 import motor.motor_asyncio
+from datetime import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from abc import ABC, abstractmethod
 from pymongo.errors import ConnectionFailure
 from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor
 
 
 # Setup logger for data_loader
@@ -47,24 +52,29 @@ class StorageInterface(ABC):
 
         elif storage_type == "postgres":
             config_info = {
-                "db_url": os.getenv("POSTGRES_DB_URL"),
+                "db_host": os.getenv("POSTGRES_DB_HOST"),
+                "db_name": os.getenv("POSTGRES_DB_NAME"),
+                "db_user": os.getenv("POSTGRES_DB_USER"),
+                "db_password": os.getenv("POSTGRES_DB_PASSWORD"),
+                "db_port": os.getenv("POSTGRES_DB_PORT"),
                 "table_name": os.getenv("POSTGRES_TABLE_NAME")
             }
+
         elif storage_type == "json":
             config_info = {
-                "dir_path": os.getenv("LOCAL_STORAGE_PATH"),
+                "storage_path": os.getenv("LOCAL_STORAGE_PATH"),
                 "file_format": "json"
             }
         elif storage_type == "csv":
             config_info = {
-                "dir_path": os.getenv("LOCAL_STORAGE_PATH"),
+                "storage_path": os.getenv("LOCAL_STORAGE_PATH"),
                 "file_format": "csv"
             }
 
         return config_info
 
     @staticmethod
-    def create_storage(storage_type: str) -> 'StorageInterface':
+    async def create_storage(storage_type: str) -> 'StorageInterface':
         """Create a storage instance based on the specified storage type."""
         if storage_type not in ["mongo", "postgres", "json", "csv"]:
             raise ValueError(f"Unsupported storage type: {storage_type}")
@@ -77,18 +87,28 @@ class StorageInterface(ABC):
                 collection_name=config_info["collection_name"]
             )
         elif storage_type == "postgres":
-            return PostgresStorage(
-                db_url=config_info["db_url"],
-                table_name=config_info["table_name"]
-            )
+                
+            db_host=config_info["db_host"]
+            db_user=config_info["db_user"]
+            db_password=config_info["db_password"]
+            db_port=config_info["db_port"]
+            db_name=config_info["db_name"]
+
+            storage = PostgresStorage(
+                    db_url=f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}',
+                    table_name=config_info["table_name"]
+                )
+            await storage.initialize()
+            return storage
+        
         elif storage_type == "json":
             return LocalStorage(
-                dir_path=config_info["dir_path"],
+                storage_path=config_info["storage_path"],
                 file_format="json"
             )
         elif storage_type == "csv":
             return LocalStorage(
-                dir_path=config_info["dir_path"],
+                storage_path=config_info["storage_path"],
                 file_format="csv"
             )
         else:
@@ -198,15 +218,21 @@ class PostgresStorage(StorageInterface):
             logger.error(f"Failed to connect to PostgreSQL: {e}")
             raise
 
+    async def initialize(self):
+        """Call this explicitly to establish the connection asynchronously."""
+        self.conn = await self.connect()
+        await self._create_table()
+
     async def connect(self):
         """Connect to the PostgreSQL database."""
         try:
-            self.conn = await asyncpg.connect(self.db_url)
+            conn = await asyncpg.connect(self.db_url)
+            await conn.execute("SELECT 1")  # Test connection
             # self.conn = psycopg2.connect(self.db_url)
             # self.cursor = self.conn.cursor()
-            await self._create_table()
+            return conn
         except Exception as e:
-            logger.error(f"Failed to connect to PostgreSQL: {e}")
+            logger.error(f"Failed to connect to PostgreSQL: {e}", exc_info=True)
             raise
 
     async def _create_table(self):
@@ -245,22 +271,26 @@ class PostgresStorage(StorageInterface):
 
     async def save_data(self, data: List[Dict[str, Any]]) -> None:
         """Insert data into PostgreSQL."""
+        def convert_date(dt):
+            
+            dt = dt.to_pydatetime() if isinstance(dt, pd.Timestamp) else dt
+            if isinstance(dt, datetime):
+                dt = pytz.utc.localize(dt) if dt.tzinfo is None else dt.astimezone(pytz.utc)
+
         if not data:
             return
         
         try:
-            # query = f'''
-            #     INSERT INTO {self.table_name} (group_id, message_ids, message, date, sender_id, media_path)
-            #     VALUES (%s, %s, %s, %s, %s)
-            # '''
             query = f'''
                 INSERT INTO {self.table_name} (group_id, message_ids, message, date, sender_id, media_path)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                VALUES ($1, $2, $3, $4, $5, $6)
             '''
+            # VALUES (%s, %s, %s, %s, %s)
+            logger.info(data)
             values = [(
-                d.get("Group ID"), d.get("Message IDs"), d.get("Message"), d.get("Date"), d.get("Sender ID"), d.get("Media Path")
+                d.get("Group ID"), d.get("Message IDs"), d.get("Message"), convert_date(d.get("Date")), d.get("Sender ID"), d.get("Media Path")
             ) for d in data]
-
+            
             # query = f'''
             #     INSERT INTO {self.table_name} (channel_title, channel_username, group_id, message_id, message, date, sender_id, media_path, emoji_used, youtube_links)
             #     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -280,14 +310,23 @@ class PostgresStorage(StorageInterface):
             #     ) for d in data
             # ]
 
-            await self.conn.executemany(query, values)
+            if not values:
+                logger.warning("No valid values to insert.")
+                return
+
+            async with self.conn.transaction():
+                await self.conn.executemany(query, values)
+
+            # await self.conn.executemany(query, values)
             # self.cursor.executemany(query, values)
             # self.conn.commit()
+
+            logger.info(f"Successfully Inserted {len(values)} records into PostgreSQL table: {self.table_name}")
+            
         # except psycopg2.Error as e:
         except Exception as e:
             logger.error(f"Error saving data to PostgreSQL: {e}")
             # self.conn.rollback()
-            logger.error(f"Error saving data to PostgreSQL: {e}")
             raise
     
     async def retrieve_data(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -319,35 +358,95 @@ class LocalStorage(StorageInterface):
     Local storage implementation supporting JSON and CSV formats.
     """
         
-    def __init__(self, dir_path: str, file_format: str = "json"):
+    def __init__(self, storage_path: str, file_format: str = "json"):
         
         if file_format.lower() not in ["json", "csv"]:
             raise ValueError("Unsupported file format. Supported formats are 'json' and 'csv'.")
         
-        self.dir_path = dir_path
+        self.storage_path = storage_path
         self.file_format = file_format.lower()
-        self.filename = "Messages" + '.' + self.file_format
-        self.file_path = os.path.join(dir_path, self.filename)
-        os.makedirs(self.dir_path, exist_ok=True)
+        self.filename = "messages" + '.' + self.file_format
+        self.file_path = os.path.join(storage_path, self.filename)
+        os.makedirs(self.storage_path, exist_ok=True)
 
-    async def save_data(self, data: List[Dict[str, Any]]) -> None:
-        """Save data to local file in JSON/CSV format."""
+    async def save_data(self, data: List[Dict[str, Any]], channel: str = '') -> None:
+        """Save data to a local file in JSON/CSV format."""
+        if not data:
+            logger.warning("No data to save. Skipping file write.")
+            return
+        
+        if channel:
+            self.file_path = os.path.join(self.storage_path, f"{channel}.{self.file_format}")
 
         try:
             if self.file_format == "json":
-                async with aiofiles.open(self.file_path, "w", encoding="utf-8") as f:
-                    await f.write(json.dumps(data, indent=4, ensure_ascii=False))
+                await self._save_json_streaming(data)
+            
             elif self.file_format == "csv":
-                async with aiofiles.open(self.file_path, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=data[0].keys())
-                    await writer.writeheader()
-                    await writer.writerows(data)
+                await asyncio.to_thread(self._save_csv, data)
+
         except Exception as e:
-            logger.error(f"Error saving data to local file: {e}")
+            logger.error(f"Error saving data to local file: {e}", exc_info=True)
             raise
+
+    async def _save_json_streaming(self, data: List[Dict[str, Any]]) -> None:
+        """Efficiently write JSON in a streamed manner to avoid high memory usage."""
+        class CustomJSONEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, pd.Timestamp):
+                    return obj.isoformat()
+                return super().default(obj)
+            
+        async with aiofiles.open(self.file_path, "w", encoding="utf-8") as f:
+            await f.write("[\n")  # Start JSON array
+            
+            for i, record in enumerate(data):
+                # record = {key: (value.isoformat() if isinstance(value, pd.Timestamp) else value) for key, value in record.items()}
+                json_record = json.dumps(record, ensure_ascii=False, cls=CustomJSONEncoder)
+                if i > 0:
+                    await f.write(",\n")  # Add a comma between records
+                await f.write(json_record)
+            
+            await f.write("\n]")  # End JSON array
+
+        # # Load existing data if file exists
+        # existing_data = []
+        # if os.path.exists(self.file_path):
+        #     async with aiofiles.open(self.file_path, "r", encoding="utf-8") as f:
+        #         try:
+        #             existing_data = json.loads(await f.read()) or []
+        #         except json.JSONDecodeError:
+        #             existing_data = []
+        
+        # async with aiofiles.open(self.file_path, "w", encoding="utf-8") as f:
+        #     await f.write(json.dumps(existing_data + data, indent=4, ensure_ascii=False))
+
+    def _save_csv(self, data: List[Dict[str, Any]]) -> None:
+        """Helper method to handle CSV writing in a separate thread."""
+        try:
+            with open(self.file_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
+            # file_exists = os.path.exists(self.file_path)
+            # async with aiofiles.open(self.file_path, "a", newline="", encoding="utf-8") as f:
+            #     writer = csv.DictWriter(f, fieldnames=data[0].keys())
+            #     if not file_exists:
+            #         await f.write(",".join(data[0].keys()) + "\n")  # Write header if new file
+            #     for row in data:
+            #         await f.write(",".join(str(row[key]) for key in data[0].keys()) + "\n")
+
+        except Exception as e:
+            logger.error(f"Error writing CSV file: {e}", exc_info=True)
+            raise
+
     
-    async def retrieve_data(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
+        
+    async def retrieve_data(self, query: Dict[str, Any], channel: str = '') -> List[Dict[str, Any]]:
         """Retrieve data from the local file based on the query."""
+
+        if channel:
+            self.file_path = os.path.join(self.storage_path, f"{channel}.{self.file_format}")
 
         try:
             if self.file_format == "json":

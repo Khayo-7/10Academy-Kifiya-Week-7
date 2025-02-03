@@ -11,8 +11,8 @@ from collections import defaultdict
 sys.path.append(os.path.join(os.path.abspath(__file__), '..', '..', '..'))
 from scripts.utils.logger import setup_logger
 from scripts.data_utils.loaders import load_json
-from scripts.utils.StorageInterface import StorageInterface
 from scripts.utils.telegram_client import TelegramAPI
+from scripts.utils.storage_interface import StorageInterface
 
 # logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 # logger = logging.getLogger(__name__)
@@ -106,13 +106,14 @@ class TelegramMonitor:
         """
         group_id = messages[0].grouped_id or messages[0].id
         aggregated_data = {
-            "group_id": group_id,
-            "message_ids": [message.id for message in messages],
-            "text": "\n".join(message.message for message in messages if message.message),
-            "date": messages[0].date.isoformat(),  # Use the earliest message's date
-            "sender_id": messages[0].sender_id,  # Use the first message's sender
-            "channel": messages[0].chat.username,
-            "media_ids": []
+            "Group ID": group_id,
+            "Message IDs": [message.id for message in messages],
+            "Message": "\n".join(message.message for message in messages if message.message),
+            "Text": "\n".join(message.text for message in messages if message.text),
+            "Date": messages[0].date.isoformat(),  # Use the earliest message's date
+            "Sender ID": messages[0].sender_id,  # Use the first message's sender
+            "Channel": messages[0].chat.username,
+            "Media Path": []
         }
 
         # Download media and save metadata
@@ -131,8 +132,7 @@ class TelegramMonitor:
                             )
                         except:
                             file_id = media_paths[0]
-                        aggregated_data["media_ids"].append(file_id)
-                    print("media_paths", media_paths)
+                        aggregated_data["Media Path"].append(file_id)
                 except Exception as e:
                     logger.error(f"Error downloading media from {message.chat.username}: {e}")
 
@@ -156,7 +156,7 @@ async def main(channels_filepath: str, media_dir: str):
     """
     try:
         channels = load_json(channels_filepath)
-        channel_usernames = channels.get('CHANNELS', [])
+        channel_usernames = channels.get('channels', [])
     except FileNotFoundError:
         logger.error(f"Channels file not found: {channels_filepath}")
         return
@@ -168,7 +168,7 @@ async def main(channels_filepath: str, media_dir: str):
     storage_type = 'json' # Use storage backend (MongoDB, Postgres, Local JSON/CSV)
     allowed_media = ["photo"]
 
-    storage = StorageInterface.create_storage(storage_type)
+    storage = await StorageInterface.create_storage(storage_type)
 
     api = TelegramAPI(
         api_id=os.getenv("API_ID"),
