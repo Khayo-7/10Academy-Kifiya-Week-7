@@ -3,44 +3,53 @@ import sys
 import csv
 import json
 import asyncio
-from typing import List, Dict, Tuple
 from collections import defaultdict
+from typing import List, Dict, Tuple
 
-import pandas as pd
+from telethon import events
 from dotenv import load_dotenv
-from telethon import TelegramClient
-from telethon.tl.types import Message
 from telethon.errors import FloodWaitError
 
 # Setup logger for data_loader
 sys.path.append(os.path.join(os.path.abspath(__file__), '..', '..', '..'))
 from scripts.utils.logger import setup_logger
 from scripts.data_utils.loaders import load_json
-
-from scripts.utils.database_manager import PostgresManager# StorageInterface  # Unified storage interface
-from scripts.utils.telegram_client import TelegramAPI #download_media, create_client, save_session, authenticate_client
+from scripts.utils.telegram_client import TelegramAPI
+from scripts.utils.StorageInterface import StorageInterface
 
 logger = setup_logger("scraper")
+
+# Load environment variables
+load_dotenv()
 
 CONFIG_PATH = os.path.join('..', 'resources', 'configs')
 channels_filepath = os.path.join(CONFIG_PATH, 'channels.json')
 
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+DB_NAME = "telegram_data"
 SESSION_FILE = os.path.join('..', 'fetching-E-commerce-data.session')
 DATA_PATH = os.path.join('..', 'resources', 'data')
+MEDIA_DIR = os.path.join('..', 'resources', 'media')
 OUTPUT_DIR = os.path.join(DATA_PATH, 'raw')
-MEDIA_DIR = os.path.join(DATA_PATH, 'photos')
 
 # Ensure the data directories exist
 os.makedirs(DATA_PATH, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MEDIA_DIR, exist_ok=True)
 
-
 class TelegramScraper:
-    def __init__(self, api: TelegramAPI, storage: PostgresManager):
+    def __init__(self, api_id, api_hash, phone_number, semaphore_limit, allowed_media, SESSION_FILE, storage: str):
 
-        self.api = api
-        self.storage = storage  # Storage backend (MongoDB, Postgres, Local JSON/CSV)
+        self.api = TelegramAPI(
+            api_id, api_hash, phone_number, semaphore_limit, allowed_media, SESSION_FILE
+        )
+        
+        self.storage = StorageInterface.create_storage(
+            storage,
+            uri=os.getenv("MONGO_URI"),
+            db_name="telegram_data",
+            collection_name="messages"
+        )  # Storage backend (MongoDB, Postgres, Local JSON/CSV)
 
     async def fetch_messages(self, channel_username: str, limit: int = 100) -> List[Dict]:
         """Fetch and group messages from a Telegram channel."""
@@ -75,10 +84,20 @@ class TelegramScraper:
         try:
             messages, medias = await self.fetch_messages(channel, limit)
             media_paths = await self.api.download_media(medias, os.path.join(media_dir, channel))
-            media_map = {media.id: path for media, path in zip(medias, media_paths)}
+            
+            # Filter out failed downloads
+            valid_media = [(media, path) for media, path in zip(medias, media_paths) if path]
+            media_map = {media.id: path for media, path in valid_media}
+            
             for msg in messages:
-                msg["Media Path"] = [media_map.get(mid) for mid in msg["Message IDs"] if mid in media_map]
-            await self.storage.save_messages(channel, messages)
+                msg["Media Path"] = [
+                    media_map.get(mid) 
+                    for mid in msg["Message IDs"] 
+                    if mid in media_map
+                ]
+            
+            # Use save_data() instead of save_messages()
+            await self.storage.save_data(messages)
             logger.info(f"Processed {len(messages)} messages from {channel}")
         except FloodWaitError as e:
             logger.warning(f"Flood wait {e.seconds} sec for {channel}")
@@ -92,8 +111,9 @@ class TelegramScraper:
         await asyncio.gather(*tasks)
 
     async def close(self):
-        await self.api.client.cleanup()
-        await self.api.client.close()
+        await self.api.cleanup()
+        await self.api.close()
+        # await self.storage.close()
 
 def sync(func):
     """Decorator to run async functions synchronously."""
@@ -103,41 +123,26 @@ def sync(func):
 
 @sync
 def run_fetch_process(channels, output_dir=OUTPUT_DIR, media_dir=MEDIA_DIR, limit=100):
-    """Main function to orchestrate fetching and saving messages."""
     async def main():
-
-        # Load credentials from environment variables
+        # Load credentials and configuration
         api_id = os.getenv("API_ID")
         api_hash = os.getenv("API_HASH")
         phone_number = os.getenv("PHONE_NUMBER")
-        semaphore_limit = int(os.getenv("TELEGRAM_SCRAPER_SEMAPHORE"))
-        SESSION_FILE = "telegram_scraper.session"
-        STORAGE_BACKEND = "mongo"  # Choose storage: "mongo", "postgres", "json"
+        semaphore_limit = int(os.getenv("TELEGRAM_SCRAPER_SEMAPHORE", '5'))
+        
+        # Initialize storage with required parameters
         allowed_media = ["photo"]
-
-        # Initialize scraper
-        storage = PostgresManager.create_storage(STORAGE_BACKEND)
-        api = TelegramAPI(api_id, api_hash, phone_number, semaphore_limit, allowed_media, SESSION_FILE)        
-
+        storage = "mongo"
+        scraper = TelegramScraper(api_id, api_hash, phone_number, semaphore_limit, allowed_media, SESSION_FILE, storage)
+        
         try:
-            await api.authenticate()
-
-            # async with TelegramScraper(api_id, api_hash, phone_number, semaphore_limit, session_file=SESSION_FILE) as scraper:
-            scraper = TelegramScraper(api, storage)
-            
-            # Fetch messages from channels
-            await scraper.scrape_channels(CHANNELS, MEDIA_DIR, LIMIT)
-                        
+            await scraper.api.authenticate()
+            await scraper.scrape_channels(channels, media_dir, limit)
         finally:
-            # Always disconnect the client
-            logger.info("Disconnecting client...")
-            
-            # Clean up sensitive data
-            await api.cleanup()
-            await api.close()
-
-    # Run the asynchronous process
+            await scraper.close()
+    
     return main()
+    # return asyncio.run(main())
 
 if __name__ == "__main__":
     
@@ -151,7 +156,9 @@ if __name__ == "__main__":
     # Load a list of channels from a JSON file to scrape from
     channels = load_json(channels_filepath)
     CHANNELS = channels.get('CHANNELS', [])
+    channels = ["ZemenExpress"]
 
     # Run only for selected channels
-    LIMIT = 500
-    run_fetch_process(channels=CHANNELS[10:15], limit=LIMIT)
+    LIMIT = 10
+    run_fetch_process(channels, limit=LIMIT)
+    # run_fetch_process(channels=CHANNELS[10:15], limit=LIMIT)

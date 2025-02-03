@@ -14,18 +14,13 @@ pytesseract
 pillow
 shap
 lime
-amseg
-pdf2image
 datasets
 transformers
-sentencepiece
 seqeval
-torch
-optuna
-accelerate
 peft
 evaluate
-wandb
-# dotenv
-# pyamharic
-# ethiopic
+python-dotenv
+opencv-python
+torch
+torchvision
+tensorflow
