@@ -1,0 +1,15 @@
+# version: 2
+
+# sources:
+#   - name: telegram
+#     database: telegram_data
+#     schema: public
+#     tables:
+#       - messages
+#   - name: telecom
+#     database: telecom
+#     schema: public
+#     tables:
+#       - messages
+#       - customer_analysis_scores
+#       - xdr_data

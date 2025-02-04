@@ -12,4 +12,4 @@ WITH raw_data AS (
     FROM raw_data
     GROUP BY group_id, business_name, phone_number, address, scraped_date
 )
-SELECT * FROM raw_data;
+SELECT * FROM raw_data

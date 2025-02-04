@@ -11,4 +11,4 @@ WITH grouped_messages AS (
     FROM {{ ref('stg_telegram_data') }}
     GROUP BY group_id, sender
 )
-SELECT * FROM grouped_messages;
+SELECT * FROM grouped_messages

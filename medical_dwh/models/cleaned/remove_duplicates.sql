@@ -4,4 +4,4 @@ WITH deduplicated AS (
     FROM cleaned_messages
     ORDER BY message_id, message_date DESC
 )
-SELECT * FROM deduplicated;
+SELECT * FROM deduplicated

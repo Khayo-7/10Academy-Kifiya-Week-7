@@ -11,4 +11,4 @@ WITH raw_data AS (
         ARRAY(SELECT unnest(regexp_matches(message_text, 'https?://[^\s]+', 'g'))) AS links
     FROM {{ source('telegram', 'raw_data') }}
 )
-SELECT * FROM raw_data;
+SELECT * FROM raw_data

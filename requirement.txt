@@ -27,3 +27,7 @@ tensorflow
 asyncpg
 motor
 aiofiles
+ultralytics
+apache-airflow
+dbt-core
+dbt-postgres

@@ -9,4 +9,4 @@ WITH cleaned AS (
     FROM stg_telegram_messages
     WHERE message_text IS NOT NULL
 )
-SELECT * FROM cleaned;
+SELECT * FROM cleaned

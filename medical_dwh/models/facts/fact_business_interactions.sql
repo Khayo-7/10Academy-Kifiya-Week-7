@@ -15,4 +15,4 @@ SELECT
     UNNEST(media_paths) AS media_path,
     UNNEST(links) AS extracted_link,
     scraped_date
-FROM cleaned_data;
+FROM cleaned_data

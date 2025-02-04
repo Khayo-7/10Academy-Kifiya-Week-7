@@ -1,6 +1,8 @@
 from airflow import DAG
-from airflow.operators.bash import BashOperator
 from datetime import datetime, timedelta
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from scripts.data_utils.elt import extract_telegram_channels, load_data_mongo, transform
 
 default_args = {
     'owner': 'airflow',
@@ -11,7 +13,7 @@ default_args = {
 }
 
 dag = DAG(
-    'dbt_automation',
+    dag_id='dbt_automation',
     default_args=default_args,
     schedule_interval='@hourly',
     catchup=False,
@@ -30,5 +32,26 @@ dbt_test = BashOperator(
 )
 
 dbt_run >> dbt_test  # Run models first, then test
+
+
+# extract = PythonOperator(
+#     task_id='extract',
+#     provide_context=True,
+#     python_callable=extract_telegram_channels,
+#     dag=dag)
+
+# load = PythonOperator(
+#     task_id='load_to_mongodb',
+#     provide_context=True,
+#     python_callable=load_data_mongo,
+#     dag=dag)
+
+# transform = PythonOperator(
+#     task_id='load_to_mongodb',
+#     provide_context=True,
+#     python_callable=load_data_mongo,
+#     dag=dag)
+
+# extract >> load >> transform
 
 # airflow scheduler

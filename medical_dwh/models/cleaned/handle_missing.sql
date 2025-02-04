@@ -8,4 +8,4 @@ WITH filled AS (
         channel
     FROM deduplicated
 )
-SELECT * FROM filled;
+SELECT * FROM filled

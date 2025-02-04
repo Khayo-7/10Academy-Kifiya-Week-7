@@ -4,4 +4,4 @@ SELECT
     phone_number,
     address
 FROM {{ ref('stg_telegram') }}
-WHERE business_name IS NOT NULL;
+WHERE business_name IS NOT NULL

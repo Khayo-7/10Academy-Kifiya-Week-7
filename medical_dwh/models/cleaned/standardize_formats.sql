@@ -8,4 +8,4 @@ WITH standardized AS (
         channel
     FROM filled
 )
-SELECT * FROM standardized;
+SELECT * FROM standardized

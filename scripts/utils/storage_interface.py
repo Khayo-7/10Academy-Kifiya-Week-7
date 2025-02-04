@@ -9,6 +9,7 @@ import asyncpg
 import psycopg2
 import aiofiles
 import pandas as pd
+from bson import ObjectId
 import motor.motor_asyncio
 from datetime import datetime
 from dotenv import load_dotenv
@@ -17,13 +18,12 @@ from abc import ABC, abstractmethod
 from pymongo.errors import ConnectionFailure
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
-
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 # Setup logger for data_loader
 sys.path.append(os.path.join(os.path.abspath(__file__), '..', '..', '..'))
 from scripts.utils.logger import setup_logger
-from scripts.data_utils.loaders import load_json
-from scripts.utils.telegram_client import TelegramAPI
+from scripts.data_utils.loaders import CustomJSONEncoder
 
 logger = setup_logger("StorageInterface")
 
@@ -130,30 +130,35 @@ class StorageInterface(ABC):
         """Close the storage connection."""
         raise NotImplementedError("This method should be implemented in subclasses")
 
-
 class MongoDBStorage(StorageInterface):
     """
     MongoDB storage implementation using GridFS for media storage.
     """
     def __init__(self, uri: str, db_name: str, collection_name: str, use_gridfs: bool = False):
+
         try:
             # self.client = MongoClient(uri)
             self.client = motor.motor_asyncio.AsyncIOMotorClient(uri)
             self.db = self.client[db_name]
             self.collection = self.db[collection_name]
             self.use_gridfs = use_gridfs
-            self.fs = gridfs.GridFS(self.db) if use_gridfs else None
+            # self.fs = gridfs.GridFS(self.db) if use_gridfs else None
+            self.fs = AsyncIOMotorGridFSBucket(self.db) if use_gridfs else None
+
         except ConnectionFailure as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
 
-    async def save_data(self, data: List[Dict[str, Any]]) -> None:
+    async def save_data(self, data: List[Dict[str, Any]], collection_name=None) -> None:
         """Save structured data into MongoDB."""
         if data:
             try:
                 # self.collection.insert_many(data)
                 # self.collection.insert_one(data)
-                await self.collection.insert_many(data)
+                collection = self.collection
+                if collection_name:
+                    collection = self.db[collection_name]
+                await collection.insert_many(data)
             except Exception as e:
                 logger.error(f"Error saving data to MongoDB: {e}")
                 raise
@@ -174,21 +179,31 @@ class MongoDBStorage(StorageInterface):
             raise ValueError("GridFS is not enabled")
         try:
             async with aiofiles.open(file_path, "rb") as f:
-                file_data = await f.read()
-                file_id = await self.fs.put(file_data, filename=os.path.basename(file_path), **(metadata or {}))
-            return str(file_id)
+                file_data = await f.read()        
+                upload_stream = await self.fs.open_upload_stream(os.path.basename(file_path), metadata=metadata)
+                await upload_stream.write(file_data)
+                await upload_stream.close()
+
+            #     file_id = await self.fs.put(file_data, filename=os.path.basename(file_path), **(metadata or {}))
+            # return str(file_id)
+            return str(upload_stream._id)
         except Exception as e:
             logger.error(f"Error saving media to GridFS: {e}")
             return None
-        
+
     async def retrieve_media(self, file_id: str, output_path: str) -> None:
         """Retrieve media file from GridFS."""
         if not self.use_gridfs:
             raise ValueError("GridFS is not enabled")
         try:
-            file_data = await self.fs.get(file_id)
+            download_stream = await self.fs.open_download_stream(ObjectId(file_id))
             with open(output_path, "wb") as f:
-                f.write(await file_data.read())
+                while chunk := await download_stream.read():
+                    f.write(chunk)
+
+            # file_data = await self.fs.get(file_id)
+            # with open(output_path, "wb") as f:
+            #     f.write(await file_data.read())
         except gridfs.NoFile as e:
             logger.error(f"File not found in GridFS: {e}")
             raise
@@ -196,6 +211,18 @@ class MongoDBStorage(StorageInterface):
             logger.error(f"Error retrieving media from GridFS: {e}")
             raise
 
+    async def put(self, data, filename):
+        """Store data in GridFS."""
+        return await self.db.fs.files.insert_one({
+            'filename': filename,
+            'data': data
+        })
+
+    async def get(self, filename):
+        """Retrieve data from GridFS."""
+        file = await self.fs.find_one({'filename': filename})
+        return await self.fs.download(file)
+    
     async def close(self):
         """Close the MongoDB connection."""
         try:
@@ -203,6 +230,22 @@ class MongoDBStorage(StorageInterface):
         except Exception as e:
             logger.error(f"Error closing MongoDB connection: {e}")
 
+    async def extract_media_paths(self, output_dir, path_column):
+        documents = await self.collection.find({path_column: {"$exists": True, "$ne": None}}).to_list(length=None)
+
+        image_paths = []
+        for doc in documents:
+            for path in doc[path_column]:
+                if path.endswith((".jpg", ".png", ".jpeg")):
+                    new_path = os.path.join(output_dir, os.path.basename(path))
+                    
+                    # Ensure async file copy
+                    async with aiofiles.open(path, "rb") as src, aiofiles.open(new_path, "wb") as dest:
+                        await dest.write(await src.read())
+
+                    image_paths.append(new_path)
+
+        return image_paths
 
 class PostgresStorage(StorageInterface):
     """
@@ -392,12 +435,7 @@ class LocalStorage(StorageInterface):
 
     async def _save_json_streaming(self, data: List[Dict[str, Any]]) -> None:
         """Efficiently write JSON in a streamed manner to avoid high memory usage."""
-        class CustomJSONEncoder(json.JSONEncoder):
-            def default(self, obj):
-                if isinstance(obj, pd.Timestamp):
-                    return obj.isoformat()
-                return super().default(obj)
-            
+
         async with aiofiles.open(self.file_path, "w", encoding="utf-8") as f:
             await f.write("[\n")  # Start JSON array
             
