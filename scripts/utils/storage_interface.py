@@ -45,7 +45,8 @@ class StorageInterface(ABC):
 
         if storage_type == "mongo":
             config_info = {
-                "uri": os.getenv("MONGO_URI"),
+                "db_host": os.getenv("MONGO_DB_HOST"),
+                "db_port": os.getenv("MONGO_DB_PORT"),
                 "db_name": os.getenv("MONGO_DB_NAME"),
                 "collection_name": os.getenv("MONGO_COLLECTION_NAME")
             }
@@ -82,7 +83,7 @@ class StorageInterface(ABC):
         config_info = StorageInterface.get_config_info(storage_type)
         if storage_type == "mongo":
             return MongoDBStorage(
-                uri=config_info["uri"],
+                uri=f'mongodb://{config_info["db_host"]}:{config_info["db_port"]}',
                 db_name=config_info["db_name"],
                 collection_name=config_info["collection_name"]
             )
