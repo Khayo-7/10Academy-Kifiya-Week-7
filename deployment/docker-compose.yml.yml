@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  fastapi:
+    build: .
+    container_name: fastapi_app
+    ports:
+      - "7777:7777"
+    depends_on:
+      - mongodb
+      - postgres
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017
+      - POSTGRES_URI=postgresql://postgres:1234@postgres:5432/medical_db
+    networks:
+      - backend
+
+  mongodb:
+    image: mongo:5.0
+    container_name: mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: medical_db
+    ports:
+      - "5432:5432"
+    networks:
+      - backend
+
+networks:
+  backend:
+
+# docker-compose build
+# docker-compose up -d
+# docker ps

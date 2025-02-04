@@ -2,11 +2,10 @@ import os
 import sys
 import joblib
 import logging
-from typing import List, Union, Optional
+from typing import List, Union
 
 import pandas as pd
 import tensorflow.keras.backend as K
-from app.utils import preprocess_input
 from tensorflow.keras.models import load_model 
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
@@ -36,11 +35,9 @@ except Exception as e:
 def make_prediction(input_data: Union[dict, List[dict]]) -> Union[dict, List[dict]]:
     
     logger.info("Starting prediction...")
-    # Preprocess inputs
-    processed_input = preprocess_input(input_data)
     
     # Generate predictions
-    predictions = model.predict(processed_input)
+    predictions = model.predict(input_data)
     logger.info("Prediction made successfully.")
     
     # Return predictions as list

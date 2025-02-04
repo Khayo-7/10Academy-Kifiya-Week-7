@@ -31,3 +31,8 @@ ultralytics
 apache-airflow
 dbt-core
 dbt-postgres
+fastapi
+uvicorn
+pymongo
+sqlalchemy
+psycopg2-binary
