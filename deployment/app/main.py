@@ -5,10 +5,7 @@ import uvicorn
 from sqlalchemy.orm import Session
 from fastapi import FastAPI, Query, Depends, HTTPException
 
-import controllers, schemas
-from database import get_db
-from app.prediction import make_prediction
-from app.schemas import PredictionInput, PredictionOutput
+import controllers, schemas, prediction, database
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 try:
@@ -48,7 +45,7 @@ def get_detected_objects(
 @app.get("/cleaned-data-pg", tags=["Cleaned Data"], response_model=list[schemas.CleanedDataSchema])
 def get_cleaned_data_pg(
     limit: int = Query(10, description="Number of records to fetch"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(database.get_db),
 ):
     return controllers.get_cleaned_data_pg(db, limit)
 
@@ -56,13 +53,16 @@ def get_cleaned_data_pg(
 def root():
     return {"message": "Welcome to the Medical Business API!"}
 
-@app.post("/predict/", response_model=Union[PredictionOutput, list[PredictionOutput]])
-async def predict(input_image: Union[PredictionInput, List[PredictionInput], dict], db: Session = Depends(get_db)):
+@app.post("/predict/", response_model=Union[schemas.PredictionOutput, list[schemas.PredictionOutput]])
+async def predict(
+    input_image: Union[schemas.PredictionInput, List[schemas.PredictionInput], dict], 
+    # db: Session = Depends(database.get_db)
+):
 
     logger.info("Starting unified prediction endpoint...")
 
     try:
-        predictions = make_prediction(input_image.model_dump())
+        predictions = prediction.make_prediction(input_image.model_dump())
         logger.info("Successfully completed batch prediction.")
         return {"Predictions": predictions}
 
