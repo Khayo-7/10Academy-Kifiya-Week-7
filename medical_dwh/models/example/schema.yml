@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: cleaned_data
+    description: "Cleaned and transformed data from Telegram scraping"
+    columns:
+      - name: group_id
+        description: "Unique group identifier"
+        tests:
+          - not_null
+      - name: message_ids
+        description: "List of message IDs within the group"
+      - name: message_text
+        description: "Extracted main message text"
+      - name: media_paths
+        description: "List of media file paths"
+      - name: links
+        description: "List of extracted links"
+      - name: business_name
+        description: "Business name"
+        tests:
+          - not_null
+      - name: phone_number
+        description: "Contact number"
+      - name: address
+        description: "Business address"
+      - name: scraped_date
+        description: "Date the data was scraped"
+        tests:
+          - not_null

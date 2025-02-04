@@ -14,18 +14,25 @@ pytesseract
 pillow
 shap
 lime
-amseg
-pdf2image
 datasets
 transformers
-sentencepiece
 seqeval
-torch
-optuna
-accelerate
 peft
 evaluate
-wandb
-# dotenv
-# pyamharic
-# ethiopic
+python-dotenv
+opencv-python
+torch
+torchvision
+tensorflow
+asyncpg
+motor
+aiofiles
+ultralytics
+apache-airflow
+dbt-core
+dbt-postgres
+fastapi
+uvicorn
+pymongo
+sqlalchemy
+psycopg2-binary

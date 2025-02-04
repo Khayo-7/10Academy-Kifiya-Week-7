@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: fact_business_interactions
+    description: "Normalized Telegram business interactions data"
+    columns:
+      - name: group_id
+        tests:
+          - not_null
+      - name: message_id
+        tests:
+          - unique
+      - name: extracted_link
+        tests:
+          - not_null
+
+  - name: dim_businesses
+    description: "Business details dimension table"
+    columns:
+      - name: group_id
+        tests:
+          - not_null
+          - unique
+      - name: business_name
+        tests:
+          - not_null
+      - name: phone_number
+        tests:
+          - not_null

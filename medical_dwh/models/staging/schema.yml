@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: stg_telegram
+    description: "Cleaned and structured Telegram scraped data"
+    columns:
+      - name: group_id
+        tests:
+          - not_null
+          - unique
+      - name: phone_number
+        tests:
+          - not_null
+      - name: scraped_date
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['2024-01-01', '2024-01-02'] # Replace with dynamic check

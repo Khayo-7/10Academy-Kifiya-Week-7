@@ -2,13 +2,14 @@ import os
 import sys
 import getpass
 import asyncio
+from functools import wraps
 from dotenv import load_dotenv
 from typing import List, Dict, Optional
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.types import Message, MessageMediaPhoto, MessageMediaDocument
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.tl.types import Message, MessageMediaPhoto, MessageMediaDocument
 
 # Setup logger for data_loader
 sys.path.append(os.path.join(os.path.abspath(__file__), '..', '..', '..'))
@@ -19,6 +20,15 @@ logger = setup_logger("scraper")
 
 # Load environment variables
 load_dotenv()
+
+def download_concurrently(func):
+    """Decorator to download concurrently."""
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        tasks = await func(*args, **kwargs)
+        return await asyncio.gather(*tasks)
+        return await asyncio.gather(*tasks, return_exceptions=True)
+    return wrapper
 
 class TelegramAPI:
     def __init__(self, api_id: str, api_hash: str, phone_number: str, semaphore_limit: int, allowed_media: List[str], session_file: str = "telegram.session"):
@@ -44,6 +54,7 @@ class TelegramAPI:
     def _create_client(self) -> TelegramClient:
         """Create and return a Telegram client."""
         if os.path.exists(self.session_file):
+            # with open(self.session_file, 'rb') as f:
             with open(self.session_file, 'r') as f:
                 session_str = f.read().strip()
             return TelegramClient(StringSession(session_str), self.api_id, self.api_hash)
@@ -52,7 +63,7 @@ class TelegramAPI:
     async def save_session(self) -> None:
         """Save the current session to a file."""
         with open(self.session_file, 'w') as f:
-            f.write(self.client.session.save())
+            f.write(await self.client.session.save())
     
     async def authenticate(self) -> None:
         """Authenticate the Telegram client."""
@@ -76,9 +87,10 @@ class TelegramAPI:
         except SessionPasswordNeededError:
             password = getpass.getpass("Enter 2FA password: ")
             await self.client.sign_in(password=password)
-        finally:
-            await self.save_session()
+        
+        await self.save_session()
     
+    @download_concurrently
     async def download_media(self, medias: List[Message], media_dir: str) -> List[Optional[str]]:
         """
         Download media from messages while respecting the semaphore limit.
@@ -115,10 +127,12 @@ class TelegramAPI:
                 return None
 
         tasks = [download(media) for media in medias]
-        return await asyncio.gather(*tasks)
+        return tasks
+        # return await asyncio.gather(*tasks)
 
     async def cleanup(self) -> None:
         """Clean up sensitive data from memory."""
+        # zeroize
         del self.api_id
         del self.api_hash
         del self.phone_number
@@ -128,44 +142,3 @@ class TelegramAPI:
         """Disconnect the Telegram client."""
         await self.client.disconnect()
         logger.info("Telegram client disconnected.")
-
-
-
-        
-# def download_concurrently(func):
-#     """Decorator to download concurrently."""
-#     async def wrapper(*args, **kwargs):
-#         tasks = await func(*args, **kwargs)
-#         return await asyncio.gather(*tasks)
-#     return wrapper
-
-# @download_concurrently
-# async def download_media(medias: List[Message], media_dir: str) -> List[str]:
-#     """Download media from messages while respecting the semaphore limit."""
-
-#     # Ensure the media directory exists
-#     os.makedirs(media_dir, exist_ok=True)
-    
-#     async def download(media):
-#         # Determine the file path based on the media type
-#         try:
-#             file_ext = (
-#                 "jpg" if hasattr(media.media, 'photo')
-#                 else media.media.document.mime_type.split('/')[-1]
-#                 if hasattr(media.media, 'document') and media.media.document.mime_type 
-#                 else "bin"
-#             )
-#             filename = f"{media.id}.{file_ext}"
-#             media_path = os.path.join(media_dir, filename)
-
-#             logger.info(f"Preparing to download: {media_path}")
-#             async with semaphore:
-#                 media_path = await media.download_media(media_path)
-#                 logger.info(f"Downloaded: {media_path}")
-#                 return media_path
-
-#         except Exception as e:
-#             logger.error(f"Failed to download media for message {media.id}: {e}")
-
-#     tasks = [download(media) for media in medias]
-#     return tasks
